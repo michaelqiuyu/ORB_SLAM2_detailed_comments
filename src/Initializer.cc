@@ -154,6 +154,10 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 
         // Select a minimum set
 		//选择最小的数据样本集，使用八点法求，所以这里就循环了八次
+		/*
+		 * author: xiongchao
+		 * 很巧妙的方法获取点的下标，加速了运行速度
+		 */
         for(size_t j=0; j<8; j++)
         {
             // 随机产生一对点的id,范围从0到N-1
@@ -172,7 +176,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
         }//依次提取出8个特征点对
     }//迭代mMaxIterations次，选取各自迭代时需要用到的最小数据集
 
-    
+
 
     // Launch threads to compute in parallel a fundamental matrix and a homography
     // Step 3 计算fundamental 矩阵 和homography 矩阵，为了加速分别开了线程计算 
@@ -729,7 +733,7 @@ float Initializer::CheckHomography(
  * @param[in] sigma                     方差，默认为1
  * @return float                        返回得分
  */
-float Initializer::CheckFundamental(
+float Initializer:: CheckFundamental(
     const cv::Mat &F21,             //当前帧和参考帧之间的基础矩阵
     vector<bool> &vbMatchesInliers, //匹配的特征点对属于inliers的标记
     float sigma)                    //方差
@@ -798,6 +802,10 @@ float Initializer::CheckFundamental(
     // 基于卡方检验计算出的阈值
 	// 自由度为1的卡方分布，显著性水平为0.05，对应的临界阈值
     // ?是因为点到直线距离是一个自由度吗？
+    /*
+     * author: xiongchao
+     * 在单应矩阵中只有一个th = 5.991；在此处th用于评估拒绝域，得分计算只用thScore
+     */
     const float th = 3.841;
 
     // 自由度为2的卡方分布，显著性水平为0.05，对应的临界阈值
@@ -838,6 +846,10 @@ float Initializer::CheckFundamental(
         // Step 2.4 误差大于阈值就说明这个点是Outlier 
         // ? 为什么判断阈值用的 th（1自由度），计算得分用的thScore（2自由度）
         // ? 可能是为了和CheckHomography 得分统一？
+        /*
+         * author: xiongchao
+         * 判断使用的是th，计算使用的是thScore
+         */
         if(chiSquare1>th)
             bIn = false;
         else
@@ -974,7 +986,6 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
         return false;
     }
 
-
     //  Step 4.5 选择最佳解记录结果
     // 条件1: 有效重建最多的3D点，即maxGood == nGoodx，也即是位于相机前方的3D点个数最多
     // 条件2: 三角化视差角 parallax 必须大于最小视差角 minParallax，角度越大3D点越稳定
@@ -1055,7 +1066,7 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
  * @return true                         单应矩阵成功计算出位姿和三维点
  * @return false                        初始化失败
  */
-bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
+bool Initializer:: ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
                       cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
 
@@ -1622,6 +1633,9 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
         // ?视差比较小时，重投影误差比较大。这里0.99998 对应的角度为0.36°,这里不应该是 cosParallax>0.99998 吗？
         // ?因为后面判断vbGood 点时的条件也是 cosParallax<0.99998 
         // !可能导致初始化不稳定
+        /*
+         * author: 这里的判断说明当深度值为负，角度非常接近0的场景是允许的，这是为什么？
+         */
         if(p3dC1.at<float>(2)<=0 && cosParallax<0.99998)
             continue;
 
@@ -1679,7 +1693,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
             vbGood[vMatches12[i].first]=true;
     }
 
-    // Step 7 得到3D点中较小的视差角，并且转换成为角度制表示
+    // Step 7 得到3D点中较大的视差角，并且转换成为角度制表示
     if(nGood>0)
     {
         // 从小到大排序，注意vCosParallax值越大，视差越小
@@ -1687,7 +1701,8 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
 
         // !排序后并没有取最小的视差角，而是取一个较小的视差角
 		// 作者的做法：如果经过检验过后的有效3D点小于50个，那么就取最后那个最小的视差角(cos值最大)
-		// 如果大于50个，就取排名第50个的较小的视差角即可，为了避免3D点太多时出现太小的视差角 
+		// 如果大于50个，就取排名第50个的较小的视差角即可，为了避免3D点太多时出现太小的视差角
+		// 可能是为了避免3D点太多时出现太大的视差角度，那可以取中值？
         size_t idx = min(50,int(vCosParallax.size()-1));
 		//将这个选中的角弧度制转换为角度制
         parallax = acos(vCosParallax[idx])*180/CV_PI;

@@ -88,14 +88,23 @@ void LocalMapping::Run()
         {
             // BoW conversion and insertion in Map
             // Step 2 处理列表中的关键帧，包括计算BoW、更新观测、描述子、共视图，插入到地图等
+            /*
+             * author: xiongchao
+             * 实际上，只有在初始化的时候才会有2个关键帧进入到mlNewKeyFrames，其余时候都只有一个关键帧，
+             * 也就是track线程产生的关键帧会在这里进行处理，除了初始化的时候，每次处理的都只有一个关键帧
+             */
             ProcessNewKeyFrame();
 
             // Check recent MapPoints
             // Step 3 根据地图点的观测情况剔除质量不好的地图点
+            /*
+             * author: xiongchao
+             * 这里检查的实际上是上次CreateNewMapPoints中产生的地图点，然后又经过了许多普通帧的跟踪，从而可以进行条件筛选
+             */
             MapPointCulling();
 
             // Triangulate new MapPoints
-            // Step 4 当前关键帧与相邻关键帧通过三角化产生新的地图点，使得跟踪更稳
+            // Step 4 当前关键帧与相邻关键帧通过三角化产生新的地图点，使得跟踪更稳定
             CreateNewMapPoints();
 
             // 已经处理完队列中的最后的一个关键帧
@@ -220,6 +229,7 @@ void LocalMapping::ProcessNewKeyFrame()
                 }
                 else // this can only happen for new stereo points inserted by the Tracking
                 {
+                    // 如果当前帧中已经包含了这个地图点,但是这个地图点中却没有包含这个关键帧的信息
                     // 这些地图点可能来自双目或RGBD跟踪过程中新生成的地图点，或者是CreateNewMapPoints 中通过三角化产生
                     // 将上述地图点放入mlpRecentAddedMapPoints，等待后续MapPointCulling函数的检验
                     mlpRecentAddedMapPoints.push_back(pMP); 
@@ -271,6 +281,11 @@ void LocalMapping::MapPointCulling()
             // mnFound ：地图点被多少帧（包括普通帧）看到，次数越多越好
             // mnVisible：地图点应该被看到的次数
             // (mnFound/mnVisible）：对于大FOV镜头这个比例会高，对于窄FOV镜头这个比例会低
+            /*
+             * author: xiongchao
+             * visible和found的区别：该地图点在视野范围内，该地图点有对应特征点的帧数。
+             * 通常来说，found的地图点一定是visible的，但是visible的地图点很可能not found
+             */
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
@@ -278,6 +293,10 @@ void LocalMapping::MapPointCulling()
         {
             // Step 2.3：从该点建立开始，到现在已经过了不小于2个关键帧
             // 但是观测到该点的相机数却不超过阈值cnThObs，从地图中删除
+            /*
+             * author: xiongchao
+             * 说明这个点的质量不会太好
+             */
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
@@ -441,6 +460,10 @@ void LocalMapping::CreateNewMapPoints()
             if(bStereo1)
                 // 传感器是双目相机,并且当前的关键帧的这个点有对应的深度
                 // 假设是平行的双目相机，计算出双目相机观察这个点的时候的视差角余弦
+                /*
+                 * author: xiongchao
+                 * 双目时候观测点与两个相机点成等腰三角形，据此计算即可
+                 */
                 cosParallaxStereo1 = cos(2*atan2(mpCurrentKeyFrame->mb/2,mpCurrentKeyFrame->mvDepth[idx1]));
             else if(bStereo2)
                 // 传感器是双目相机,并且邻接的关键帧的这个点有对应的深度，和上面一样操作
@@ -647,6 +670,10 @@ void LocalMapping::SearchInNeighbors()
         // 加入一级相邻关键帧    
         vpTargetKFs.push_back(pKFi);
         // 标记已经加入
+        /*
+         * author: xiongchao
+         * 这样处理的原因是：这个一级关键帧也有可能是其他一级关键帧的二级关键帧
+         */
         pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
 
         // Extend to some second neighbors
@@ -705,6 +732,10 @@ void LocalMapping::SearchInNeighbors()
                 continue;
 
             // 加入集合，并标记已经加入
+            /*
+             * author: xiongchao
+             * 可能某个地图点被多帧看到
+             */
             pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->mnId;
             vpFuseCandidates.push_back(pMP);
         }
@@ -874,6 +905,10 @@ void LocalMapping::KeyFrameCulling()
     // scaleLevel：pKF的金字塔尺度
 
     // Step 1：根据共视图提取当前关键帧的所有共视关键帧
+    /*
+     * author: xiongchao
+     * 删除的是当前关键帧的共视关键帧，而不是当前关键帧
+     */
     vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
 
     // 对所有的共视关键帧进行遍历
@@ -912,6 +947,10 @@ void LocalMapping::KeyFrameCulling()
 
                     nMPs++;
                     // pMP->Observations() 是观测到该地图点的相机总数目（单目1，双目2）
+                    /*
+                     * author: xiongchao
+                     * 观测数目多，才能考虑删除
+                     */
                     if(pMP->Observations()>thObs)
                     {
                         const int &scaleLevel = pKF->mvKeysUn[i].octave;

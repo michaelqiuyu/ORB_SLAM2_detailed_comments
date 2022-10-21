@@ -111,6 +111,10 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
             const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
 
 	        // 自由度为2的卡方分布，显著性水平为0.01，对应的临界阈值为9.21
+	        /*
+	         * author: xiongchao
+	         * 显著性水平越低，对应的拒绝域越小，也就是越容易接受接受原假设，此时的筛选条件变得不严格了
+	         */
             mvnMaxError1.push_back(9.210*sigmaSquare1);
             mvnMaxError2.push_back(9.210*sigmaSquare2);
 
@@ -231,7 +235,7 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
     while(mnIterations<mRansacMaxIts && nCurrentIterations<nIterations)
     {
         nCurrentIterations++;// 这个函数中迭代的次数
-        mnIterations++;      // 总的迭代次数，默认为最大为300
+        mnIterations++;      // 总的迭代次数，默认为最大为300；实际上除了在此处发生迭代也没有在其他地方发生迭代了
 
         // 记录所有有效（可以采样）的候选三维点索引
         vAvailableIndices = mvAllIndices;
@@ -258,6 +262,14 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
         }
 
         // Step 2.2 根据随机取的两组匹配的3D点，计算P3Dc2i 到 P3Dc1i 的Sim3变换
+        /*
+         * author: xiongchao
+         * 这里并不是严格按照论文的方式使用最小二乘，这里仅仅使用了3对匹配点进行求解；
+         *  1. sim3的匹配点的计算使用的卡方阈值为0.01，所以匹配不算严格，误匹配的可能性大，使用所有的匹配点计算可能误差会大
+         *  2. 使用ransac的方式，每次随机选择3对匹配点进行计算，最后选择最好的那个模型
+         *
+         * Note: 为什么不严格控制匹配点的阈值，直接使用所有点进行最小二乘计算？ --- 可以尝试
+         */
         ComputeSim3(P3Dc1i,P3Dc2i);
 
         // Step 2.3 对计算的Sim3变换，通过投影误差进行inlier检测

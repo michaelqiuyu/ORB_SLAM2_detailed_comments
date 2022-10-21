@@ -261,7 +261,6 @@ void MapPoint::Replace(MapPoint* pMP)
     // 1. 将当前地图点的观测数据等其他数据都"叠加"到新的地图点上
     // 2. 将观测到当前地图点的关键帧的信息进行更新
 
-
     // 清除当前地图点的信息，这一段和SetBadFlag函数相同
     int nvisible, nfound;
     map<KeyFrame*,size_t> obs;
@@ -402,7 +401,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     // N表示为一共多少个描述子
     const size_t N = vDescriptors.size();
 	
-    // 将Distances表述成一个对称的矩阵
+    // 将Distances表述成一个对称的矩阵；主对角线的值为0
     // float Distances[N][N];
 	std::vector<std::vector<float> > Distances;
 	Distances.resize(N, vector<float>(N, 0));
@@ -526,6 +525,10 @@ void MapPoint::UpdateNormalAndDepth()
 
     cv::Mat PC = Pos - pRefKF->GetCameraCenter();                           // 参考关键帧相机指向地图点的向量（在世界坐标系下的表示）
     const float dist = cv::norm(PC);                                        // 该点到参考关键帧相机的距离
+    /*
+     * author: xiongchao
+     * 参考关键帧一定能看到这个地图点吗
+     */
     const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;        // 观测到该地图点的当前帧的特征点在金字塔的第几层
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];          // 当前金字塔层对应的尺度因子，scale^n，scale=1.2，n为层数
     const int nLevels = pRefKF->mnScaleLevels;                              // 金字塔总层数，默认为8

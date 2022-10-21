@@ -376,7 +376,7 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
                         nPoints++;
                 }
                 else
-                    nPoints++; //!bug
+                    nPoints++;
             }
         }
     }
@@ -514,8 +514,6 @@ void KeyFrame::UpdateConnections()
 
         // mspConnectedKeyFrames = spConnectedKeyFrames;
         // 更新当前帧与其它关键帧的连接权重
-        // ?bug 这里直接赋值，会把小于阈值的共视关系也放入mConnectedKeyFrameWeights，会增加计算量
-        // ?但后续主要用mvpOrderedConnectedKeyFrames来取共视帧，对结果没影响
         mConnectedKeyFrameWeights = KFcounter;
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
@@ -527,6 +525,9 @@ void KeyFrame::UpdateConnections()
             mpParent = mvpOrderedConnectedKeyFrames.front();
             // 建立双向连接关系，将当前关键帧作为其子关键帧
             mpParent->AddChild(this);
+            /*
+             * author: xiongchao
+             */
             mbFirstConnection = false;
         }
     }
@@ -808,6 +809,10 @@ vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const
         return vIndices;
 
     // 遍历每个cell,取出其中每个cell中的点,并且每个点都要计算是否在邻域内
+    /*
+     * author: xiongchao
+     * 使用cell进行搜索相比较于遍历所有的关键点要快很多
+     */
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)

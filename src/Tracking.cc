@@ -324,6 +324,11 @@ cv::Mat Tracking::GrabImageRGBD(
     }
 
     // step 2 ：将深度相机的disparity转为Depth , 也就是转换成为真正尺度下的深度
+    //这里的判断条件感觉有些尴尬
+    //前者和后者满足一个就可以了
+    //满足前者意味着,mDepthMapFactor 相对1来讲要足够大
+    //满足后者意味着,如果深度图像不是浮点型? 才会执行
+    //意思就是说,如果读取到的深度图像是浮点型,就不执行这个尺度的变换操作了呗? TODO 
     if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
         imDepth.convertTo(  //将图像转换成为另外一种数据类型,具有可选的数据大小缩放系数
             imDepth,            //输出图像
@@ -666,7 +671,11 @@ void Tracking::Track()
             mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
 
             // Clean VO matches
-            // Step 6：清除观测不到的地图点   
+            // Step 6：清除观测不到的地图点
+            /*
+             * author: xiongchao
+             * 当前帧没有看到这些地图点，那个如何跑到mCurrentFrame.mvpMapPoints中的
+             */
             for(int i=0; i<mCurrentFrame.N; i++)
             {
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
@@ -1177,6 +1186,10 @@ bool Tracking::TrackReferenceKeyFrame()
     mCurrentFrame.SetPose(mLastFrame.mTcw); // 用上一次的Tcw设置初值，在PoseOptimization可以收敛快一些
 
     // Step 4:通过优化3D-2D的重投影误差来获得位姿
+    /*
+     * 思考为什么不使用EPNP的结果作为初值，然后再单帧优化
+     * 地图点不动是因为地图点是之前初始化BA或者局部建图BA出来的，认为是准的，此处只有位姿不准，因此仅仅优化位姿
+     */
     Optimizer::PoseOptimization(&mCurrentFrame);
 
     // Discard outliers
@@ -1305,6 +1318,10 @@ void Tracking::UpdateLastFrame()
         // 停止新增临时地图点必须同时满足以下条件：
         // 1、当前的点的深度已经超过了设定的深度阈值（35倍基线）
         // 2、nPoints已经超过100个点，说明距离比较远了，可能不准确，停掉退出
+        /*
+         * author: xiongchao
+         * 前面排序了，因此不需要接着往后执行了
+         */
         if(vDepthIdx[j].first>mThDepth && nPoints>100)
             break;
     }
@@ -1332,6 +1349,10 @@ bool Tracking::TrackWithMotionModel()
     mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);
     
     // 清空当前帧的地图点
+    /*
+     * author: xiongchao
+     * 每一个元素都是MapPoint*，并且非空指针
+     */
     fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
 
     // Project points seen in previous frame
@@ -1383,7 +1404,7 @@ bool Tracking::TrackWithMotionModel()
                 // 累加成功匹配到的地图点数目
                 nmatchesMap++;
         }
-    }    
+    }
 
     if(mbOnlyTracking)
     {
@@ -1629,6 +1650,7 @@ void Tracking::CreateNewKeyFrame()
 
     // Step 1：将当前帧构造成关键帧
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
+
     // Step 2：将当前关键帧设置为当前帧的参考关键帧
     // 在UpdateLocalKeyFrames函数中会将与当前关键帧共视程度最高的关键帧设定为当前帧的参考关键帧
     mpReferenceKF = pKF;
@@ -1839,6 +1861,10 @@ void Tracking::UpdateLocalPoints()
                 continue;
             // 用该地图点的成员变量mnTrackReferenceForFrame 记录当前帧的id
             // 表示它已经是当前帧的局部地图点了，可以防止重复添加局部地图点
+            /*
+             * author: xiongchao
+             * 某个地图点被多个关键帧看到，避免重复添加
+             */
             if(pMP->mnTrackReferenceForFrame==mCurrentFrame.mnId)
                 continue;
             if(!pMP->isBad())
@@ -1950,6 +1976,10 @@ void Tracking::UpdateLocalKeyFrames()
             if(!pNeighKF->isBad())
             {
                 // mnTrackReferenceForFrame防止重复添加局部关键帧
+                /*
+                 * author: xiongchao
+                 * 某个一级共视关键帧可能是另一个一级共视关键帧的共视关键帧，因此可能存在重复添加
+                 */
                 if(pNeighKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
                 {
                     mvpLocalKeyFrames.push_back(pNeighKF);
@@ -2186,6 +2216,10 @@ bool Tracking::Relocalization()
                             for(int ip =0; ip<mCurrentFrame.N; ip++)
                                 if(mCurrentFrame.mvpMapPoints[ip])
                                     sFound.insert(mCurrentFrame.mvpMapPoints[ip]);
+                            /*
+                             * author: xiongchao
+                             * 此时的位姿相比之前的更准确，因此搜索的范围可以更小
+                             */
                             nadditional =matcher2.SearchByProjection(
                                 mCurrentFrame,          //当前帧
                                 vpCandidateKFs[i],      //候选的关键帧

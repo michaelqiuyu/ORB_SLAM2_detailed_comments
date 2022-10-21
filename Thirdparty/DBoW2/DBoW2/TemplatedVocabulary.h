@@ -1248,6 +1248,10 @@ void TemplatedVocabulary<TDescriptor,F>::transform(const TDescriptor &feature,
   // m_L: depth levels, m_L = 6 in ORB-SLAM2
   // nid_level 当前特征点转化为的Word 所属的 node id，方便索引
   const int nid_level = m_L - levelsup;
+  /*
+   * author: xiongchao
+   * 在这里mid_level不要小于0，否则会无法满足current_level == nid_level
+   */
   if(nid_level <= 0 && nid != NULL) *nid = 0; // root
 
   NodeId final_id = 0; // root
@@ -1284,6 +1288,10 @@ void TemplatedVocabulary<TDescriptor,F>::transform(const TDescriptor &feature,
 
   // turn node id into word id
   // 取出 vocabulary tree中node距离当前feature 描述子距离最小的那个node的 Word id 和 weight
+  /*
+   * author: xiongchao
+   * 此时已经到了叶子节点，得到了某个特征点对应的单词和权重
+   */
   word_id = m_nodes[final_id].word_id;
   weight = m_nodes[final_id].weight;
 }

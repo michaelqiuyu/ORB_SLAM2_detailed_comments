@@ -283,7 +283,12 @@ bool LoopClosing::DetectLoop()
                     vCurrentConsistentGroups.push_back(cg);
                     //this avoid to include the same group more than once
                     // 标记一下，防止重复添加到同一个索引iG
-                    // 但是spCandidateGroup可能重复添加到不同的索引iG对应的vbConsistentGroup 中
+                    // 但是spCandidateGroup可能重复添加到不同的索引iG对应的vbConsistentGroup中
+                    /*
+                     * author: xiongchao
+                     * 某个候选帧与某个子连续组连续后，这个子连续组就不再与其他候选帧连续了
+                     * 注意：这里并没有根据nCurrentConsistency的大小进行筛选，可能后面的spCandidateGroup与vbConsistentGroup[iG]的连续性更高，但也进入不了
+                     */
                     vbConsistentGroup[iG]=true; 
                 }
                 // 如果连续长度满足要求，那么当前的这个候选关键帧是足够靠谱的
@@ -292,6 +297,11 @@ bool LoopClosing::DetectLoop()
                 if(nCurrentConsistency>=mnCovisibilityConsistencyTh && !bEnoughConsistent)
                 {
                     // 记录为达到连续条件了
+                    /*
+                     * author: xiongchao
+                     * 对于某个候选关键帧，只要它与前面的连续组的连续性达到要求，就将他添加到mvpEnoughConsistentCandidates中
+                     * 至于这个候选关键帧再次与其他连续组的连续性再次达到要求，也不会重复添加（已经认为他是进一步的候选帧了）；当候选关键帧改变后（最外面的for），bEnoughConsistent会变为false
+                     */
                     mvpEnoughConsistentCandidates.push_back(pCandidateKF);
                     //this avoid to insert the same candidate more than once
                     // 标记一下，防止重复添加
@@ -300,6 +310,10 @@ bool LoopClosing::DetectLoop()
                     // ? 这里可以break掉结束当前for循环吗？
                     // 回答：不行。因为虽然pCandidateKF达到了连续性要求
                     // 但spCandidateGroup 还可以和mvConsistentGroups 中其他的子连续组进行连接
+                    /*
+                     * author: xiongchao
+                     * spCandidateGroup 还可以和mvConsistentGroups 中其他的子连续组进行连接，并添加到vCurrentConsistentGroups中
+                     */
                 }
             }
         }
@@ -494,7 +508,7 @@ bool LoopClosing::ComputeSim3()
                 // OpenCV的Mat矩阵转成Eigen的Matrix类型
                 // gScm：候选关键帧到当前帧的Sim3变换
                 g2o::Sim3 gScm(Converter::toMatrix3d(R),Converter::toVector3d(t),s);
-            
+
                 // 如果mbFixScale为true，则是6 自由度优化（双目 RGBD），如果是false，则是7 自由度优化（单目）
                 // 优化mpCurrentKF与pKF对应的MapPoints间的Sim3，得到优化后的量gScm
                 const int nInliers = Optimizer::OptimizeSim3(mpCurrentKF, pKF, vpMapPointMatches, gScm, 10, mbFixScale);
@@ -687,6 +701,15 @@ void LoopClosing::CorrectLoop()
 
         // Step 2.1：通过mg2oScw（认为是准的）来进行位姿传播，得到当前关键帧的共视关键帧的世界坐标系下Sim3 位姿
         // 遍历"当前关键帧组""
+        /*
+         * author: xiongchao
+         * world → current → world → 第i个共视帧
+         *     ------    -----   ------
+         *       1         2       3
+         * 第1个过程为sim3变换，第2个过程为当前帧的旋转过程，第3个过程为第i个共视帧原来的旋转变换
+         * 对于第i个共视帧，第3个过程已经表示了旋转，通过加上第1个过程，强制将sim3添加到上面
+         * 疑问：在前面做sim3变换的时候，是否有修改current的R t信息（猜测一直到这里还没有修改）
+         */
         for(vector<KeyFrame*>::iterator vit=mvpCurrentConnectedKFs.begin(), vend=mvpCurrentConnectedKFs.end(); vit!=vend; vit++)
         {
             KeyFrame* pKFi = *vit;
@@ -700,6 +723,10 @@ void LoopClosing::CorrectLoop()
 
                 // g2oSic：当前关键帧 mpCurrentKF 到其共视关键帧 pKFi 的Sim3 相对变换
                 // 这里是non-correct, 所以scale=1.0
+                /*
+                 * author: xiongchao
+                 * 这两帧离的很近，没有尺度漂移
+                 */
                 g2o::Sim3 g2oSic(Converter::toMatrix3d(Ric),Converter::toVector3d(tic),1.0);
                 // 当前帧的位姿固定不动，其它的关键帧根据相对关系得到Sim3调整的位姿
                 g2o::Sim3 g2oCorrectedSiw = g2oSic*mg2oScw;
@@ -710,6 +737,10 @@ void LoopClosing::CorrectLoop()
 
             cv::Mat Riw = Tiw.rowRange(0,3).colRange(0,3);
             cv::Mat tiw = Tiw.rowRange(0,3).col(3);
+            /*
+             * author: xiongchao
+             * 这里实际上是旋转变换
+             */
             g2o::Sim3 g2oSiw(Converter::toMatrix3d(Riw),Converter::toVector3d(tiw),1.0);
             // Pose without correction
             // 存放没有矫正的当前关键帧的共视关键帧的Sim3变换
@@ -795,6 +826,10 @@ void LoopClosing::CorrectLoop()
                 // 匹配投影得到的地图点
                 MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];
                 // 原来的地图点
+                /*
+                 * author: xiongchao
+                 * 这个地图点在上面不是已经经过了矫正嘛，为甚还有进行替换
+                 */
                 MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i); 
                 if(pCurMP)
                     // 如果有重复的MapPoint，则用匹配的地图点代替现有的
@@ -838,6 +873,10 @@ void LoopClosing::CorrectLoop()
         // Step 5.3：更新一级相连关键帧的连接关系(会把当前关键帧添加进去,因为地图点已经更新和替换了)
         pKFi->UpdateConnections();
         // Step 5.4：取出该帧更新后的连接关系
+        /*
+         * author: xiongchao
+         * 此处得到的连接关键帧已经更新了
+         */
         LoopConnections[pKFi]=pKFi->GetConnectedKeyFrames();
         // Step 5.5：从连接关系中去除闭环之前的二级连接关系，剩下的连接就是由闭环得到的连接关系
         for(vector<KeyFrame*>::iterator vit_prev=vpPreviousNeighbors.begin(), vend_prev=vpPreviousNeighbors.end(); vit_prev!=vend_prev; vit_prev++)
@@ -858,7 +897,7 @@ void LoopClosing::CorrectLoop()
 
     // Add loop edge
     // Step 7：添加当前帧与闭环匹配帧之间的边（这个连接关系不优化）
-    // 它在下一次的本质图优化里面使用
+    // !这两句话应该放在OptimizeEssentialGraph之前，因为OptimizeEssentialGraph的步骤4.2中有优化
     mpMatchedKF->AddLoopEdge(mpCurrentKF);
     mpCurrentKF->AddLoopEdge(mpMatchedKF);
 
@@ -1034,7 +1073,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                 for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
                 {
                     KeyFrame* pChild = *sit;
-                    // mnBAGlobalForKF记录是由于哪个闭环匹配关键帧触发的全局BA,并且已经经过了GBA的优化。
+                    // 记录避免重复
                     if(pChild->mnBAGlobalForKF!=nLoopKF)
                     {
                         // 从父关键帧到当前子关键帧的位姿变换 T_child_farther
@@ -1042,7 +1081,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                         // 再利用优化后的父关键帧的位姿，转换到世界坐标系下，相当于更新了子关键帧的位姿
                         // 这种最小生成树中除了根节点，其他的节点都会作为其他关键帧的子节点，这样做可以使得最终所有的关键帧都得到了优化
                         pChild->mTcwGBA = Tchildc*pKF->mTcwGBA;
-                        // 做个标记
+                        // 做个标记，避免重复
                         pChild->mnBAGlobalForKF=nLoopKF;
 
                     }

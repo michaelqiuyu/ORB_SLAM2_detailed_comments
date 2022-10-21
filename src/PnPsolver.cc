@@ -227,9 +227,15 @@ void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxI
     if(mRansacMinInliers==N)//根据期望的残差大小来计算RANSAC需要迭代的次数
         nIterations=1;
     else
-        nIterations = ceil(log(1-mRansacProb)/log(1-pow(mRansacEpsilon,4)));
-        // nIterations = ceil(log(1-mRansacProb)/log(1-pow(mRansacEpsilon,3)));  //!bug 对于Sim3是3,EPnP是4
-
+        /*
+         * author: xiongchao
+         * 先假设模型能正常运行，那么实际内点数目>mRansacMinInliers；因此mRansacEpsilon偏小，因此nIterations偏大，也就是有了buffer，能够迭代更多次
+         */
+        nIterations = ceil(log(1-mRansacProb)/log(1-pow(mRansacEpsilon,3)));
+    /*
+     * author: xiongchao
+     * 最多只迭代mRansacMaxIts次
+     */
     mRansacMaxIts = max(1,min(nIterations,mRansacMaxIts));
 
     // Step 5 计算不同图层上的特征点在进行内点检验的时候,所使用的不同判断误差阈值
@@ -947,6 +953,10 @@ void PnPsolver::estimate_R_and_t(double R[3][3], double t[3])
     R[0][0] * R[1][1] * R[2][2] + R[0][1] * R[1][2] * R[2][0] + R[0][2] * R[1][0] * R[2][1] -
     R[0][2] * R[1][1] * R[2][0] - R[0][1] * R[1][0] * R[2][2] - R[0][0] * R[1][2] * R[2][1];
   // 如果小于0那么就要加负号
+  /*
+   * author: xiongchao
+   * 这样做的理由是什么，他是基于什么最小化得到的
+   */
   if (det < 0) {
     R[2][0] = -R[2][0];
     R[2][1] = -R[2][1];

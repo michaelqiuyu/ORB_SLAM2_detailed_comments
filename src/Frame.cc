@@ -368,6 +368,10 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
         ComputeImageBounds(imGray);
 
 		// 表示一个图像像素相当于多少个图像网格列（宽）
+		/*
+		 * author: xiongchao
+		 * 这里使用的不是图像的宽高，而是去畸变后计算的图像边界，对后面的网格分配会有印象，因此分配的时候会计算特征点是否在去畸变图像边界外
+		 */
         mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);
 		// 表示一个图像像素相当于多少个图像网格行（高）
         mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/static_cast<float>(mnMaxY-mnMinY);
@@ -546,6 +550,10 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const float viewCos = PO.dot(Pn)/dist;
 
 	//夹角要在60°范围内，否则认为观测方向太偏了，重投影不可靠，返回false
+	/*
+	 * author: xiongchao
+	 * 这里实际上是挑选左右接近的，而非对向或远离的，对向或远离的夹角一般都会偏大
+	 */
     if(viewCos<viewingCosLimit)
         return false;
 
@@ -600,6 +608,10 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 	// (x-mnMinX-r)，可以看做是从图像的左边界mnMinX到半径r的圆的左边界区域占的像素列数
 	// 两者相乘，就是求出那个半径为r的圆的左侧边界在哪个网格列中
     // 保证nMinCellX 结果大于等于0
+    /*
+     * author: xiongchao
+     * 其实就是计算正方形的四边对应的网格号，这样处理的好处避免了对整张图像进行遍历，只需要对获取的网格中的点进行遍历即可，加快计算
+     */
     const int nMinCellX = max(0,(int)floor( (x-mnMinX-r)*mfGridElementWidthInv));
 
 
@@ -625,6 +637,10 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     // 检查需要搜索的图像金字塔层数范围是否符合要求
     //? 疑似bug。(minLevel>0) 后面条件 (maxLevel>=0)肯定成立
     //? 改为 const bool bCheckLevels = (minLevel>=0) || (maxLevel>=0);
+    /*
+     * author: xiongchao
+     * 此处的条件等价于minLevel >= 0，这个条件正常情况下恒成立
+     */
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
     // Step 2 遍历圆形区域内的所有网格，寻找满足条件的候选特征点，并将其index放到输出里
@@ -770,6 +786,10 @@ void Frame::UndistortKeyPoints()
 		//读取校正后的坐标并覆盖老坐标
         kp.pt.x=mat.at<float>(i,0);
         kp.pt.y=mat.at<float>(i,1);
+        /*
+         * author: xiongchao
+         * kp中含有很多信息，因此仅更新坐标，并将更新后的kp保存
+         */
         mvKeysUn[i]=kp;
     }
 }
@@ -853,7 +873,7 @@ void Frame::ComputeStereoMatches()
     // 金字塔底层（0层）图像高 nRows
     const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
 
-	// 二维vector存储每一行的orb特征点的列坐标的索引，为什么是vector，因为每一行的特征点有可能不一样，例如
+	// 二维vector存储每一行的orb特征点的列坐标，为什么是vector，因为每一行的特征点有可能不一样，例如
     // vRowIndices[0] = [1，2，5，8, 11]   第1行有5个特征点,他们的列号（即x坐标）分别是1,2,5,8,11
     // vRowIndices[1] = [2，6，7，9, 13, 17, 20]  第2行有7个特征点.etc
     vector<vector<size_t> > vRowIndices(nRows, vector<size_t>());
@@ -871,12 +891,21 @@ void Frame::ComputeStereoMatches()
         
         // 计算特征点ir在行方向上，可能的偏移范围r，即可能的行号为[kpY + r, kpY -r]
         // 2 表示在全尺寸(scale = 1)的情况下，假设有2个像素的偏移，随着尺度变化，r也跟着变化
+        /*
+         * author: xiongchao
+         * 金字塔层数越高，图像越模糊，搜索的范围越大；r代表在上下多少行进行搜索
+         * Note: 所有特征点都被投影到了原图像
+         */
         const float r = 2.0f * mvScaleFactors[mvKeysRight[iR].octave];
         const int maxr = ceil(kpY + r);
         const int minr = floor(kpY - r);
 
         // 将特征点ir保证在可能的行号中
         for(int yi=minr;yi<=maxr;yi++)
+            /*
+             * author: xiongchao
+             * 实际上这样处理后，每个vRowIndices[i]保存的是其上下指定区域内的特征点的下标
+             */
             vRowIndices[yi].push_back(iR);
     }
 
@@ -887,7 +916,11 @@ void Frame::ComputeStereoMatches()
     // mind = baseline * length_focal / maxZ
 
     const float minZ = mb;
-    const float minD = 0;			// 最小视差为0，对应无穷远 
+    const float minD = 0;			// 最小视差为0，对应无穷远（深度）
+    /*
+     * author: xiongchao
+     * 这个minZ需要根据场景进行选择，这里直接选择的基线长度
+     */
     const float maxD = mbf/minZ;    // 最大视差对应的距离是相机的基线
 
     // 保存sad块匹配相似度和左图特征点索引
@@ -925,6 +958,10 @@ void Frame::ComputeStereoMatches()
             const cv::KeyPoint &kpR = mvKeysRight[iR];
 
             // 左图特征点il与待匹配点ic的空间尺度差超过2，放弃
+            /*
+             * author: xiongchao
+             * 在这里并没有严格的左右图金字塔图像的对应关系，而是在一个范围内进行搜索
+             */
             if(kpR.octave<levelL-1 || kpR.octave>levelL+1)
                 continue;
 
@@ -940,6 +977,10 @@ void Frame::ComputeStereoMatches()
 
 				//统计最小相似度及其对应的列坐标(x)
                 if( dist<bestDist ) {
+                    /*
+                     * author: xiongchao
+                     * 距离越小越匹配
+                     */
                     bestDist = dist;
                     bestIdxR = iR;
                 }
@@ -954,6 +995,10 @@ void Frame::ComputeStereoMatches()
             const float scaleFactor = mvInvScaleFactors[kpL.octave];
             
             // 尺度缩放后的左右图特征点坐标
+            /*
+             * author: xiongchao
+             * 左右图使用的是同一个缩放比例，实际上左右图可能不一定处于同一个金字塔层级
+             */
             const float scaleduL = round(kpL.pt.x*scaleFactor);			
             const float scaledvL = round(kpL.pt.y*scaleFactor);
             const float scaleduR0 = round(uR0*scaleFactor);
@@ -963,10 +1008,18 @@ void Frame::ComputeStereoMatches()
             const int w = 5;
 
             // 提取左图中，以特征点(scaleduL,scaledvL)为中心, 半径为w的图像块patch
+            /*
+             * author: xiongchao
+             * 在这里是在图像金字塔上进行SAD，因此上面才会缩放计算scaleduL, scaledvL
+             */
             cv::Mat IL = mpORBextractorLeft->mvImagePyramid[kpL.octave].rowRange(scaledvL-w,scaledvL+w+1).colRange(scaleduL-w,scaleduL+w+1);
             IL.convertTo(IL,CV_32F);
             
             // 图像块均值归一化，降低亮度变化对相似度计算的影响
+            /*
+             * author: xiongchao
+             * 这里的操作是减去窗口中心的灰度值
+             */
 			IL = IL - IL.at<float>(w,w) * cv::Mat::ones(IL.rows,IL.cols,CV_32F);
 
 			//初始化最佳相似度
@@ -980,6 +1033,10 @@ void Frame::ComputeStereoMatches()
 
 			// 初始化存储图像块相似度
             vector<float> vDists;
+            /*
+             * author: xiongchao
+             * 图像块的中心在[-l, l]之间移动，总计有2l+1中情况
+             */
             vDists.resize(2*L+1); 
 
             // 计算滑动窗口滑动范围的边界，因为是块匹配，还要算上图像块的尺寸
@@ -988,6 +1045,10 @@ void Frame::ComputeStereoMatches()
             // 此次 + 1 和下面的提取图像块是列坐标+1是一样的，保证提取的图像块的宽是2 * w + 1
             // ! 源码： const float iniu = scaleduR0+L-w; 错误
             // scaleduR0：右图特征点x坐标
+            /*
+             * author: xiongchao
+             * 最左边图像块的中心和最右边图像块的中心到scaleduR0的距离都是l；也就是图像块的中心在[-l, l]之间移动
+             */
             const float iniu = scaleduR0-L-w;
             const float endu = scaleduR0+L+w+1;
 
@@ -1006,6 +1067,10 @@ void Frame::ComputeStereoMatches()
                 IR = IR - IR.at<float>(w,w) * cv::Mat::ones(IR.rows,IR.cols,CV_32F);
                 
                 // sad 计算，值越小越相似
+                /*
+                 * author: xiongchao
+                 * 计算对应灰度差的绝对值
+                 */
                 float dist = cv::norm(IL,IR,cv::NORM_L1);
 
                 // 统计最小sad和偏移量
@@ -1019,6 +1084,10 @@ void Frame::ComputeStereoMatches()
             }
 
             // 搜索窗口越界判断
+            /*
+             * author: xiongchao
+             * 不考虑最左边和最右边的两个窗口
+             */
             if(bestincR==-L || bestincR==L)
                 continue;
 
@@ -1033,7 +1102,12 @@ void Frame::ComputeStereoMatches()
             // 公式参考opencv sgbm源码中的亚像素插值公式
             // 或论文<<On Building an Accurate Stereo Matching System on Graphics Hardware>> 公式7
 
-            const float dist1 = vDists[L+bestincR-1];	
+            /*
+             * author: xiongchao
+             * vDists中存储的是SAD的误差
+             * 这里使用三个误差拟合一条抛物线，之后计算抛物线的顶点坐标；这里的抛物线一定是开口向上的，因为vDists[L+bestincR]更小
+             */
+            const float dist1 = vDists[L+bestincR-1];
             const float dist2 = vDists[L+bestincR];
             const float dist3 = vDists[L+bestincR+1];
             const float deltaR = (dist1-dist3)/(2.0f*(dist1+dist3-2.0f*dist2));

@@ -46,6 +46,10 @@ void BowVector::addWeight(WordId id, WordValue v)
   // http://www.cplusplus.com/reference/map/map/key_comp/
   if(vit != this->end() && !(this->key_comp()(id, vit->first)))
   {
+    /*
+     * author: xiongchao
+     * key_comp返回两个可以的大小关系，如果1<=2就返回false
+     */
     // 如果id = vit->first, 说明是同一个Word，权重更新 
     vit->second += v;
   }
